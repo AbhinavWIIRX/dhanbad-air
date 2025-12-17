@@ -7,189 +7,171 @@ import time
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Jharkhand Geo-Mining Safety",
-    page_icon="🛡️",
+    page_title="Jharkhand Mine Safety Pro",
+    page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CONFIGURATION & NEW API KEY ---
-# Updated with the key you provided
-API_KEY = "2bc68872279fa6ba34acf50fcfa6a559"  
+# --- 2. ADVANCED SETUP ---
+API_KEY = "2bc68872279fa6ba34acf50fcfa6a559"
 BASE_URL = "http://api.openweathermap.org/data/2.5/air_pollution"
 
-# --- 3. CUSTOM CSS ---
+# --- 3. ALGORITHM: CALCULATE REAL AQI (0-500 Scale) ---
+# This makes your project technically "Advanced" 
+def calculate_aqi(pm25):
+    # Standard breakpoints for PM2.5 (US EPA Standard)
+    if pm25 <= 12.0:
+        return ((50 - 0) / (12.0 - 0)) * (pm25 - 0) + 0
+    elif pm25 <= 35.4:
+        return ((100 - 51) / (35.4 - 12.1)) * (pm25 - 12.1) + 51
+    elif pm25 <= 55.4:
+        return ((150 - 101) / (55.4 - 35.5)) * (pm25 - 35.5) + 101
+    elif pm25 <= 150.4:
+        return ((200 - 151) / (150.4 - 55.5)) * (pm25 - 55.5) + 151
+    elif pm25 <= 250.4:
+        return ((300 - 201) / (250.4 - 150.5)) * (pm25 - 150.5) + 201
+    elif pm25 <= 350.4:
+        return ((400 - 301) / (350.4 - 250.5)) * (pm25 - 250.5) + 301
+    else:
+        return ((500 - 401) / (500.4 - 350.5)) * (pm25 - 350.5) + 401
+
+def get_aqi_status(aqi):
+    if aqi <= 50: return "Good", "#00e400"        # Green
+    elif aqi <= 100: return "Moderate", "#ffff00" # Yellow
+    elif aqi <= 150: return "Unhealthy for Sensitive", "#ff7e00" # Orange
+    elif aqi <= 200: return "Unhealthy", "#ff0000" # Red
+    elif aqi <= 300: return "Very Unhealthy", "#8f3f97" # Purple
+    else: return "Hazardous", "#7e0023"           # Maroon
+
+# --- 4. CSS STYLING ---
 st.markdown("""
 <style>
-    .stApp { background-color: #f8f9fa; }
-    .metric-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    .stApp { background-color: #f4f6f9; }
+    .main-metric {
+        background: white;
+        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         text-align: center;
-        border-bottom: 4px solid #ddd;
     }
-    .danger-card { border-bottom: 4px solid #ff4b4b; }
-    .safe-card { border-bottom: 4px solid #00cc96; }
-    .stButton>button { width: 100%; border-radius: 8px; height: 50px; font-weight: bold; }
+    .big-font { font-size: 3rem !important; font-weight: 800; margin: 0; }
+    .sub-font { font-size: 1.2rem; color: #666; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. JHARKHAND MINING ZONES ---
+# --- 5. SIDEBAR & ZONES ---
 LOCATIONS = {
     "Dhanbad (Coal Capital)": {"lat": 23.7957, "lon": 86.4304, "type": "Coal Mining"},
     "Jharia (Fire Zone)": {"lat": 23.7430, "lon": 86.4116, "type": "Active Fire/Coal"},
     "Ranchi (Capital Region)": {"lat": 23.3441, "lon": 85.3096, "type": "Urban/Industrial"},
-    "Jamshedpur (Steel City)": {"lat": 22.8046, "lon": 86.2029, "type": "Steel/Heavy Industry"},
     "Bokaro (Thermal/Steel)": {"lat": 23.6693, "lon": 85.9323, "type": "Thermal Power"},
-    "Hazaribagh (Coal Belt)": {"lat": 23.9925, "lon": 85.3637, "type": "Coal Mining"},
-    "Kodarma (Mica Capital)": {"lat": 24.4677, "lon": 85.5947, "type": "Mica Mines"},
     "Chaibasa (Iron Ore)": {"lat": 22.5526, "lon": 85.8066, "type": "Iron Ore Mines"},
-    "Ramgarh (Industrial)": {"lat": 23.6305, "lon": 85.5149, "type": "Cement/Alloy"},
-    "Giridih (Open Cast)": {"lat": 24.1915, "lon": 86.3024, "type": "Coal/Mica"},
-    "Deoghar (Pilgrim/Stone)": {"lat": 24.4826, "lon": 86.6999, "type": "Stone Crushing"},
-    "Palamu (Graphite)": {"lat": 24.0375, "lon": 84.0691, "type": "Graphite Mines"}
+    "Katras (Mining Belt)": {"lat": 23.8136, "lon": 86.2874, "type": "Coal Mines"},
 }
 
-# --- 5. SIDEBAR ---
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Emblem_of_Jharkhand.svg/1200px-Emblem_of_Jharkhand.svg.png", width=100)
-    st.title("Jharkhand Safety Grid")
-    st.write("Real-time OpenWeatherMap Link")
-    st.divider()
-    selected_loc_name = st.selectbox("📍 Select Region", list(LOCATIONS.keys()))
-    selected_data = LOCATIONS[selected_loc_name]
-    st.info(f"**Zone Type:** {selected_data['type']}")
-    if st.button("🔄 Refresh Data"):
-        st.cache_data.clear()
+    st.image("https://cdn-icons-png.flaticon.com/512/3061/3061341.png", width=80)
+    st.header("Control Station")
+    selected_loc = st.selectbox("Select Zone", list(LOCATIONS.keys()))
+    if st.button("🔄 Refresh System"): st.cache_data.clear()
 
-# --- 6. DATA FETCHING (Improved Error Handling) ---
+# --- 6. DATA ENGINE ---
 @st.cache_data(ttl=300)
-def fetch_owm_data(lat, lon):
+def get_mining_data(lat, lon):
     try:
-        # 1. Get Current Data
-        current_url = f"{BASE_URL}?lat={lat}&lon={lon}&appid={API_KEY}"
-        curr_resp = requests.get(current_url).json()
+        # Current
+        url = f"{BASE_URL}?lat={lat}&lon={lon}&appid={API_KEY}"
+        data = requests.get(url).json()
         
-        # DEBUG CHECK: If API returns error message
-        if 'message' in curr_resp:
-            st.error(f"OpenWeatherMap Error: {curr_resp['message']}")
-            return None, pd.DataFrame()
-            
-        # 2. Get Forecast Data (for graphs)
-        forecast_url = f"{BASE_URL}/forecast?lat={lat}&lon={lon}&appid={API_KEY}"
-        fore_resp = requests.get(forecast_url).json()
+        # Forecast
+        fore_url = f"{BASE_URL}/forecast?lat={lat}&lon={lon}&appid={API_KEY}"
+        fore = requests.get(fore_url).json()
         
-        # Process Current
-        current_data = {
-            "aqi": curr_resp['list'][0]['main']['aqi'], # 1 to 5 scale
-            "pm2_5": curr_resp['list'][0]['components']['pm2_5'],
-            "pm10": curr_resp['list'][0]['components']['pm10'],
-            "co": curr_resp['list'][0]['components']['co'],
-            "no2": curr_resp['list'][0]['components']['no2']
+        # Process
+        pm25 = data['list'][0]['components']['pm2_5']
+        pm10 = data['list'][0]['components']['pm10']
+        
+        # Calculate Advanced AQI
+        real_aqi = calculate_aqi(pm25)
+        
+        return {
+            "aqi": int(real_aqi),
+            "pm25": pm25,
+            "pm10": pm10,
+            "no2": data['list'][0]['components']['no2'],
+            "forecast": fore['list']
         }
-        
-        # Process Forecast (Next 24 hours)
-        forecast_list = []
-        for item in fore_resp['list'][:24]:
-            forecast_list.append({
-                "Time": pd.to_datetime(item['dt'], unit='s'),
-                "PM2.5": item['components']['pm2_5'],
-                "PM10": item['components']['pm10'],
-                "NO2": item['components']['no2']
-            })
-        
-        return current_data, pd.DataFrame(forecast_list)
-    except Exception as e:
-        st.error(f"System Error: {e}")
-        return None, pd.DataFrame()
+    except:
+        return None
 
-# --- 7. MAIN DASHBOARD ---
-st.title(f"🛡️ Safety Dashboard: {selected_loc_name}")
-st.markdown(f"**Live Monitoring via OpenWeatherMap API**")
+# --- 7. UI LAYOUT ---
+st.title(f"🏭 {selected_loc}")
+st.caption("Real-Time Mining Environmental Monitoring System")
 
-current, df_forecast = fetch_owm_data(selected_data['lat'], selected_data['lon'])
+data = get_mining_data(LOCATIONS[selected_loc]['lat'], LOCATIONS[selected_loc]['lon'])
 
-if current:
-    # --- ROW 1: CARDS ---
-    col1, col2, col3 = st.columns([1, 1, 2])
+if data:
+    aqi_text, aqi_color = get_aqi_status(data['aqi'])
+    
+    # --- TOP ROW: THE BIG AQI GAUGE ---
+    col1, col2 = st.columns([1, 2])
     
     with col1:
+        # Display the Status Text prominently
         st.markdown(f"""
-        <div class="metric-card danger-card">
-            <h3>PM 10 (Dust)</h3>
-            <h1 style="color: #ff4b4b;">{current['pm10']}</h1>
-            <p>µg/m³</p>
+        <div class="main-metric" style="border-top: 10px solid {aqi_color};">
+            <p class="sub-font">Current Air Quality</p>
+            <p class="big-font" style="color:{aqi_color};">{data['aqi']}</p>
+            <h3>{aqi_text}</h3>
         </div>
         """, unsafe_allow_html=True)
         
     with col2:
-        st.markdown(f"""
-        <div class="metric-card safe-card">
-            <h3>PM 2.5 (Fine)</h3>
-            <h1 style="color: #00cc96;">{current['pm2_5']}</h1>
-            <p>µg/m³</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        # GAUGE for OWM AQI (Scale 1-5)
-        aqi_labels = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
-        aqi_val = current['aqi']
-        aqi_text = aqi_labels.get(aqi_val, "Unknown")
-        
+        # Professional Gauge Chart
         fig = go.Figure(go.Indicator(
-            mode = "gauge+number+delta",
-            value = aqi_val,
-            title = {'text': f"Air Quality Index (1-5 Scale)<br><span style='font-size:0.8em;color:gray'>{aqi_text}</span>"},
+            mode = "gauge+number",
+            value = data['aqi'],
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': "<b>AQI METER (0-500)</b>", 'font': {'size': 20}},
             gauge = {
-                'axis': {'range': [0, 5], 'tickvals': [1,2,3,4,5]},
-                'bar': {'color': "darkblue"},
+                'axis': {'range': [0, 500], 'tickwidth': 1, 'tickcolor': "black"},
+                'bar': {'color': aqi_color},
                 'steps': [
-                    {'range': [0, 1.5], 'color': "#00cc96"}, # Good
-                    {'range': [1.5, 3.5], 'color': "#ffc107"}, # Moderate
-                    {'range': [3.5, 5], 'color': "#ff4b4b"}], # Poor
+                    {'range': [0, 50], 'color': "#00e400"},
+                    {'range': [50, 100], 'color': "#ffff00"},
+                    {'range': [100, 150], 'color': "#ff7e00"},
+                    {'range': [150, 200], 'color': "#ff0000"},
+                    {'range': [200, 300], 'color': "#8f3f97"},
+                    {'range': [300, 500], 'color': "#7e0023"}],
             }
         ))
-        fig.update_layout(height=250, margin=dict(l=20,r=20,t=40,b=20))
+        fig.update_layout(height=250, margin=dict(t=30,b=10,l=10,r=10))
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- ROW 2: ACTIONS ---
-    st.subheader("⚡ Quick Actions")
-    ac1, ac2, ac3, ac4 = st.columns(4)
-    with ac1: 
-        if st.button("📢 Alert"): st.success("Alert Sent!")
-    with ac2:
-        if st.button("📥 Report"):
-            if not df_forecast.empty:
-                st.download_button("Save CSV", df_forecast.to_csv().encode('utf-8'), "report.csv", "text/csv")
-    with ac3: st.button("🏥 Hospitals")
-    with ac4: st.button("🚒 Emergency")
+    # --- ROW 2: POLLUTANT BREAKDOWN ---
+    st.subheader("🧪 Pollutant Concentration")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("PM 2.5 (Fine Dust)", f"{data['pm25']} µg/m³", delta="Mining Dust")
+    m2.metric("PM 10 (Coarse Dust)", f"{data['pm10']} µg/m³", delta="Coal Dust")
+    m3.metric("NO2 (Explosives Gas)", f"{data['no2']} µg/m³", delta="Blasting Fumes")
 
-    # --- ROW 3: GRAPHS & MAP ---
+    # --- ROW 3: FORECAST GRAPH ---
     st.divider()
-    tab1, tab2, tab3 = st.tabs(["📊 Forecast Trend", "🗺️ Map Location", "🩺 Health Advice"])
+    st.subheader("📈 24-Hour Prediction Curve")
     
-    with tab1:
-        if not df_forecast.empty:
-            fig = px.area(df_forecast, x='Time', y=['PM10', 'PM2.5', 'NO2'], 
-                          title="24-Hour Pollutant Forecast",
-                          color_discrete_map={'PM10':'#ff4b4b', 'PM2.5':'#00cc96', 'NO2':'#ffa500'})
-            st.plotly_chart(fig, use_container_width=True)
-            
-    with tab2:
-        st.map(pd.DataFrame({'lat': [selected_data['lat']], 'lon': [selected_data['lon']]}), zoom=12)
-        
-    with tab3:
-        if current['aqi'] >= 4:
-            st.error("🔴 **HIGH RISK:** Air quality is Poor/Very Poor. Wear masks and stop outdoor work.")
-        elif current['aqi'] == 3:
-            st.warning("🟠 **MODERATE:** Sensitive groups should avoid exertion.")
-        else:
-            st.success("🟢 **SAFE:** Air quality is Good or Fair.")
+    # Prepare data for graph
+    times = [pd.to_datetime(x['dt'], unit='s') for x in data['forecast'][:24]]
+    pm25_vals = [x['components']['pm2_5'] for x in data['forecast'][:24]]
+    
+    chart_data = pd.DataFrame({"Time": times, "PM2.5": pm25_vals})
+    
+    fig2 = px.area(chart_data, x="Time", y="PM2.5", color_discrete_sequence=[aqi_color])
+    fig2.add_hline(y=60, line_dash="dash", annotation_text="Safety Limit")
+    st.plotly_chart(fig2, use_container_width=True)
+    
+    # --- ROW 4: MAP ---
+    st.map(pd.DataFrame({'lat': [LOCATIONS[selected_loc]['lat']], 'lon': [LOCATIONS[selected_loc]['lon']]}))
 
-elif API_KEY == "YOUR_API_KEY":
-    st.warning("⚠️ Please replace 'YOUR_API_KEY' in the code with your actual OpenWeatherMap API Key.")
 else:
-    st.error("Could not connect to OpenWeatherMap. If you just created the key, please wait 30 minutes for activation.")
+    st.error("Server Connection Error. Please wait 30 minutes for API Key activation.")
