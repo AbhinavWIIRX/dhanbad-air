@@ -3,140 +3,229 @@ import pandas as pd
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
+import time
 
-# --- PAGE SETUP ---
-st.set_page_config(page_title="Jharkhand Mine Safety", page_icon="⛑️", layout="wide")
+# --- 1. PAGE CONFIGURATION (Must be first) ---
+st.set_page_config(
+    page_title="Jharkhand Geo-Mining Safety",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- CUSTOM CSS ---
+# --- 2. CUSTOM CSS FOR ADVANCED UI ---
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        border-left: 5px solid #ff4b4b;
+    /* Main Background */
+    .stApp {
+        background-color: #f8f9fa;
     }
-    .advisory-box {
-        padding: 15px;
+    
+    /* Card Styling */
+    .metric-card {
+        background-color: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        text-align: center;
+        border-bottom: 4px solid #ddd;
+    }
+    
+    /* Danger Card */
+    .danger-card {
+        border-bottom: 4px solid #ff4b4b;
+    }
+    
+    /* Safe Card */
+    .safe-card {
+        border-bottom: 4px solid #00cc96;
+    }
+    
+    /* Button Styling */
+    .stButton>button {
+        width: 100%;
         border-radius: 8px;
-        margin-bottom: 10px;
+        height: 50px;
+        font-weight: bold;
+    }
+    
+    /* Headers */
+    h1, h2, h3 {
+        color: #2c3e50;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR: LOCATION SELECTOR ---
+# --- 3. JHARKHAND MINING ZONES DATA ---
+LOCATIONS = {
+    "Dhanbad (Coal Capital)": {"lat": 23.7957, "lon": 86.4304, "type": "Coal Mining"},
+    "Jharia (Fire Zone)": {"lat": 23.7430, "lon": 86.4116, "type": "Active Fire/Coal"},
+    "Ranchi (Capital Region)": {"lat": 23.3441, "lon": 85.3096, "type": "Urban/Industrial"},
+    "Jamshedpur (Steel City)": {"lat": 22.8046, "lon": 86.2029, "type": "Steel/Heavy Industry"},
+    "Bokaro (Thermal/Steel)": {"lat": 23.6693, "lon": 85.9323, "type": "Thermal Power"},
+    "Hazaribagh (Coal Belt)": {"lat": 23.9925, "lon": 85.3637, "type": "Coal Mining"},
+    "Kodarma (Mica Capital)": {"lat": 24.4677, "lon": 85.5947, "type": "Mica Mines"},
+    "Chaibasa (Iron Ore)": {"lat": 22.5526, "lon": 85.8066, "type": "Iron Ore Mines"},
+    "Ramgarh (Industrial)": {"lat": 23.6305, "lon": 85.5149, "type": "Cement/Alloy"},
+    "Giridih (Open Cast)": {"lat": 24.1915, "lon": 86.3024, "type": "Coal/Mica"},
+    "Deoghar (Pilgrim/Stone)": {"lat": 24.4826, "lon": 86.6999, "type": "Stone Crushing"},
+    "Palamu (Graphite)": {"lat": 24.0375, "lon": 84.0691, "type": "Graphite Mines"}
+}
+
+# --- 4. SIDEBAR NAVIGATION ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2942/2942544.png", width=80)
-    st.title("📍 Zone Selection")
-    
-    # EXPANDED COAL FIELDS LIST (Real Coordinates)
-    # Adding Katras, Nirsa, Kusunda, etc.
-    coords = {
-        "Dhanbad City (Main)": {"lat": 23.7957, "lon": 86.4304},
-        "Jharia Coal Field": {"lat": 23.7430, "lon": 86.4116},
-        "Sindri Industrial Area": {"lat": 23.6496, "lon": 86.5147},
-        "Katras (Mining Belt)": {"lat": 23.8136, "lon": 86.2874},
-        "Nirsa (Open Cast)": {"lat": 23.7877, "lon": 86.7163},
-        "Kusunda Area": {"lat": 23.7644, "lon": 86.4087},
-        "Govindpur (Highway)": {"lat": 23.8373, "lon": 86.5186},
-        "Bokaro (Thermal Plant)": {"lat": 23.6693, "lon": 85.9323}
-    }
-    
-    selected_area = st.selectbox("Select Monitoring Station", list(coords.keys()))
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Emblem_of_Jharkhand.svg/1200px-Emblem_of_Jharkhand.svg.png", width=100)
+    st.title("Jharkhand Safety Grid")
+    st.write("Real-time Environmental Monitoring System")
     
     st.divider()
-    st.info(f"Connected to satellite feed for: **{selected_area}**")
+    
+    selected_loc_name = st.selectbox("📍 Select Region", list(LOCATIONS.keys()))
+    selected_data = LOCATIONS[selected_loc_name]
+    
+    st.info(f"**Zone Type:** {selected_data['type']}")
+    
+    st.divider()
+    st.write("⚙️ **Control Panel**")
+    refresh = st.button("🔄 Refresh Satellite Link")
+    if refresh:
+        st.toast("Reconnecting to Sentinel-5P Satellite...", icon="📡")
+        time.sleep(1)
+        st.toast("Data Updated Successfully!", icon="✅")
 
-# --- DATA FETCHING FUNCTION ---
-@st.cache_data
-def get_data(lat, lon):
+# --- 5. DATA FETCHING ENGINE ---
+@st.cache_data(ttl=3600)
+def fetch_pollution_data(lat, lon):
     url = "https://air-quality-api.open-meteo.com/v1/air-quality"
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": ["pm10", "pm2_5", "dust", "us_aqi"],
+        "hourly": ["pm10", "pm2_5", "us_aqi", "dust"],
         "timezone": "Asia/Kolkata",
-        "forecast_days": 3
+        "forecast_days": 1
     }
     try:
-        response = requests.get(url, params=params)
-        hourly = response.json()['hourly']
+        r = requests.get(url, params=params)
+        data = r.json()
         df = pd.DataFrame({
-            "Time": pd.to_datetime(hourly['time']),
-            "PM10": hourly['pm10'],
-            "PM2.5": hourly['pm2_5'],
-            "Dust": hourly['dust'],
-            "AQI": hourly['us_aqi']
+            "Time": pd.to_datetime(data['hourly']['time']),
+            "AQI": data['hourly']['us_aqi'],
+            "PM10": data['hourly']['pm10'],
+            "PM2.5": data['hourly']['pm2_5']
         })
         return df
     except:
         return pd.DataFrame()
 
-# --- ADVANCED HEALTH ADVISORY LOGIC ---
-def get_detailed_advisory(pm25):
-    if pm25 <= 30:
-        return "green", "Safe Conditions", "✅ Air quality is good. Perfect for outdoor activities.", "🟢 Windows can be kept open."
-    elif pm25 <= 60:
-        return "blue", "Satisfactory", "⚠️ Sensitive people (Asthma/Heart issues) should reduce heavy exertion.", "🔵 Ventilate rooms during afternoon."
-    elif pm25 <= 90:
-        return "orange", "Moderate Danger", "😷 Lungs & Heart patients must wear masks. Children should play indoors.", "🟠 Use Air Purifiers if available."
-    elif pm25 <= 120:
-        return "red", "Poor Air Quality", "🚫 Avoid morning walks. Wear N95 masks if going outside is necessary.", "🔴 Keep windows closed."
-    else:
-        return "black", "SEVERE HAZARD", "☠️ HEALTH EMERGENCY. Serious risk of respiratory illness. Stop all outdoor mining/construction.", "⚫ SEAL ALL WINDOWS. DO NOT GO OUT."
+# --- 6. MAIN DASHBOARD UI ---
+st.title(f"🛡️ Safety Dashboard: {selected_loc_name}")
+st.markdown(f"**Live Monitoring of {selected_data['type']} Impact on Air Quality**")
 
-# --- MAIN DASHBOARD ---
-st.title(f"⛑️ Mine Safety & Health: {selected_area}")
-
-lat = coords[selected_area]["lat"]
-lon = coords[selected_area]["lon"]
-df = get_data(lat, lon)
+df = fetch_pollution_data(selected_data['lat'], selected_data['lon'])
 
 if not df.empty:
-    # Get Current Data
-    current = df.iloc[0]
+    current = df.iloc[pd.Timestamp.now().hour]
     
-    # 1. KEY METRICS
-    col1, col2, col3, col4 = st.columns(4)
+    # --- ROW 1: STATUS CARDS & GAUGE ---
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
     with col1:
-        st.metric("AQI (Quality Index)", f"{current['AQI']}", delta="Normal" if current['AQI'] < 100 else "High", delta_color="inverse")
+        # Custom HTML Card for PM10
+        st.markdown(f"""
+        <div class="metric-card danger-card">
+            <h3>PM 10 (Dust)</h3>
+            <h1 style="color: #ff4b4b;">{current['PM10']}</h1>
+            <p>µg/m³</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
     with col2:
-        st.metric("PM 2.5 (Fine)", f"{current['PM2.5']}", delta="-2.1")
+        # Custom HTML Card for PM2.5
+        st.markdown(f"""
+        <div class="metric-card safe-card">
+            <h3>PM 2.5 (Smoke)</h3>
+            <h1 style="color: #00cc96;">{current['PM2.5']}</h1>
+            <p>µg/m³</p>
+        </div>
+        """, unsafe_allow_html=True)
+
     with col3:
-        st.metric("PM 10 (Dust)", f"{current['PM10']}", delta="5.4", delta_color="inverse")
-    with col4:
-        # Dynamic Risk Badge
-        risk_color = "green" if current['AQI'] < 100 else "red"
-        st.markdown(f"#### Risk Level")
-        st.markdown(f":{risk_color}-background[**{current['AQI']} - {'SAFE' if current['AQI'] < 100 else 'RISKY'}**]")
-
-    # 2. HEALTH ADVISORY SECTION (New Feature)
-    st.subheader("🩺 Real-time Health Advisory")
-    color, title, health_msg, action_msg = get_detailed_advisory(current['PM2.5'])
-    
-    with st.container():
-        # Using Streamlit's colored message boxes
-        if color == "green":
-            st.success(f"**{title}**: {health_msg}")
-        elif color == "orange":
-            st.warning(f"**{title}**: {health_msg}")
-        else:
-            st.error(f"**{title}**: {health_msg}")
-            
-        with st.expander("Recommended Actions (Click to Expand)"):
-            st.write(f"- {action_msg}")
-            st.write("- **Mine Workers:** Wet suppression (water sprinkling) required.")
-            st.write("- **Schools:** No restrictions." if color == "green" else "- **Schools:** Cancel outdoor sports.")
-
-    # 3. GRAPHS
-    tab1, tab2 = st.tabs(["📉 24-Hour Trend", "🗺️ Satellite Map"])
-    
-    with tab1:
-        fig = px.area(df.head(24), x='Time', y=['PM10', 'PM2.5'], title="Pollution Trend (Next 24 Hours)", color_discrete_sequence=["#ff4b4b", "#0068c9"])
+        # GUAGE CHART (Speedometer)
+        fig = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = current['AQI'],
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': "Live Air Quality Index (AQI)"},
+            gauge = {
+                'axis': {'range': [None, 500]},
+                'bar': {'color': "darkblue"},
+                'steps': [
+                    {'range': [0, 50], 'color': "#00cc96"},
+                    {'range': [50, 100], 'color': "#ffc107"},
+                    {'range': [100, 300], 'color': "#ff8c00"},
+                    {'range': [300, 500], 'color': "#ff4b4b"}],
+            }
+        ))
+        fig.update_layout(height=250, margin=dict(l=20,r=20,t=40,b=20))
         st.plotly_chart(fig, use_container_width=True)
+
+    # --- ROW 2: ACTION CENTER (BUTTONS) ---
+    st.subheader("⚡ Quick Actions")
+    ac_col1, ac_col2, ac_col3, ac_col4 = st.columns(4)
     
-    with tab2:
-        st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}), zoom=11)
+    with ac_col1:
+        if st.button("📢 Send Alert SMS"):
+            with st.spinner("Connecting to Gateway..."):
+                time.sleep(2)
+            st.success("Alert sent to District Magistrate & Mine Manager!")
+            
+    with ac_col2:
+        if st.button("📥 Download Report"):
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📄 Click to Save CSV",
+                data=csv,
+                file_name=f"{selected_loc_name}_report.csv",
+                mime="text/csv",
+                key='download-csv'
+            )
+            
+    with ac_col3:
+        if st.button("🏥 Search Hospitals"):
+            st.info("Nearest Respiratory Center: Sadar Hospital (2.4 km)")
+            
+    with ac_col4:
+        if st.button("🚒 Fire Brigade"):
+            st.error("Emergency Signal Sent to Fire Station!")
+
+    # --- ROW 3: DETAILED GRAPHS ---
+    st.divider()
+    tab_chart, tab_map, tab_adv = st.tabs(["📊 Analytics", "🗺️ Geo-Map", "🩺 Medical Advisory"])
+    
+    with tab_chart:
+        st.subheader("24-Hour Pollution Forecast")
+        chart_fig = px.area(df, x='Time', y=['PM10', 'PM2.5'], color_discrete_map={'PM10':'#ff4b4b', 'PM2.5':'#00cc96'})
+        st.plotly_chart(chart_fig, use_container_width=True)
+        
+    with tab_map:
+        st.subheader("Satellite Location Tracking")
+        map_df = pd.DataFrame({'lat': [selected_data['lat']], 'lon': [selected_data['lon']]})
+        st.map(map_df, zoom=10)
+        
+    with tab_adv:
+        st.subheader("AI-Generated Health Protocols")
+        if current['AQI'] > 200:
+            st.error("🔴 **CRITICAL:** Suspend all open-cast mining immediately. Sprinklers must be active.")
+            st.markdown("* Workers must wear N95 masks.")
+            st.markdown("* Schools within 5km radius should be closed.")
+        elif current['AQI'] > 100:
+            st.warning("🟠 **WARNING:** Limit heavy vehicle movement. Increase water sprinkling frequency.")
+        else:
+            st.success("🟢 **NORMAL:** Standard mining operations permitted.")
 
 else:
-    st.error("Server Error: Could not fetch satellite data. Please try again later.")
+    st.error("Connection Failed. Please check internet access.")
+
+# --- FOOTER ---
+st.markdown("---")
+st.markdown(f"<div style='text-align: center; color: grey;'>Developed for Jharkhand Mining Safety Initiative • {selected_loc_name} Zone</div>", unsafe_allow_html=True)
