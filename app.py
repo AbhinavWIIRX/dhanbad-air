@@ -13,8 +13,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CONFIGURATION & API KEY ---
-API_KEY = "9634bddbfe18d6ade9b28b697a066c21"  # Your API Key
+# --- 2. CONFIGURATION & NEW API KEY ---
+# Updated with the key you provided
+API_KEY = "2bc68872279fa6ba34acf50fcfa6a559"  
 BASE_URL = "http://api.openweathermap.org/data/2.5/air_pollution"
 
 # --- 3. CUSTOM CSS ---
@@ -63,7 +64,7 @@ with st.sidebar:
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
 
-# --- 6. DATA FETCHING (OpenWeatherMap) ---
+# --- 6. DATA FETCHING (Improved Error Handling) ---
 @st.cache_data(ttl=300)
 def fetch_owm_data(lat, lon):
     try:
@@ -71,6 +72,11 @@ def fetch_owm_data(lat, lon):
         current_url = f"{BASE_URL}?lat={lat}&lon={lon}&appid={API_KEY}"
         curr_resp = requests.get(current_url).json()
         
+        # DEBUG CHECK: If API returns error message
+        if 'message' in curr_resp:
+            st.error(f"OpenWeatherMap Error: {curr_resp['message']}")
+            return None, pd.DataFrame()
+            
         # 2. Get Forecast Data (for graphs)
         forecast_url = f"{BASE_URL}/forecast?lat={lat}&lon={lon}&appid={API_KEY}"
         fore_resp = requests.get(forecast_url).json()
@@ -96,7 +102,7 @@ def fetch_owm_data(lat, lon):
         
         return current_data, pd.DataFrame(forecast_list)
     except Exception as e:
-        st.error(f"API Error: {e}")
+        st.error(f"System Error: {e}")
         return None, pd.DataFrame()
 
 # --- 7. MAIN DASHBOARD ---
@@ -156,7 +162,8 @@ if current:
         if st.button("📢 Alert"): st.success("Alert Sent!")
     with ac2:
         if st.button("📥 Report"):
-            st.download_button("Save CSV", df_forecast.to_csv().encode('utf-8'), "report.csv", "text/csv")
+            if not df_forecast.empty:
+                st.download_button("Save CSV", df_forecast.to_csv().encode('utf-8'), "report.csv", "text/csv")
     with ac3: st.button("🏥 Hospitals")
     with ac4: st.button("🚒 Emergency")
 
@@ -182,5 +189,7 @@ if current:
         else:
             st.success("🟢 **SAFE:** Air quality is Good or Fair.")
 
+elif API_KEY == "YOUR_API_KEY":
+    st.warning("⚠️ Please replace 'YOUR_API_KEY' in the code with your actual OpenWeatherMap API Key.")
 else:
-    st.error("Could not connect to OpenWeatherMap. Please check API Key or Internet.")
+    st.error("Could not connect to OpenWeatherMap. If you just created the key, please wait 30 minutes for activation.")
