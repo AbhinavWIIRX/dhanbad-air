@@ -6,54 +6,68 @@ import plotly.graph_objects as go
 import google.generativeai as genai
 import time
 
-# --- 1. CONFIGURATION (API KEYS) ---
-# Weather Data Key
-OWM_API_KEY = "2bc68872279fa6ba34acf50fcfa6a559"
-# Gemini AI Key
-GEMINI_API_KEY = "AIzaSyC_W6xvfQ2pgRaPXfIly0ILSfAt7RU-ksE"
-
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-
-# --- 2. PAGE SETUP ---
+# --- 1. CONFIGURATION ---
 st.set_page_config(
-    page_title="Jharkhand Mine Safety AI",
-    page_icon="🤖",
+    page_title="Jharkhand Mine Safety Pro",
+    page_icon="⛑️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 3. CUSTOM CSS (Alarm Colors) ---
+# API KEYS
+OWM_API_KEY = "2bc68872279fa6ba34acf50fcfa6a559"
+# Uses the key you provided previously
+GEMINI_API_KEY = "AIzaSyC_W6xvfQ2pgRaPXfIly0ILSfAt7RU-ksE" 
+
+# Configure Gemini
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+except Exception as e:
+    st.error(f"AI Config Error: {e}")
+
+# --- 2. CUSTOM CSS (UI POLISH) ---
 st.markdown("""
 <style>
+    /* Main Background */
     .stApp { background-color: #f8f9fa; }
     
-    /* AI Report Box */
-    .ai-box {
+    /* Card Styling */
+    .metric-card {
+        background-color: white;
         padding: 20px;
         border-radius: 12px;
-        background-color: #ffffff;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        text-align: center;
+        border: 1px solid #e0e0e0;
     }
     
-    /* Alarm Borders */
-    .border-green { border-left: 8px solid #00e400; }
-    .border-orange { border-left: 8px solid #ff7e00; }
-    .border-red { border-left: 8px solid #ff0000; }
-    
-    /* Metric Cards */
-    .metric-container {
-        background: white;
-        padding: 15px;
+    /* AI Chat Box */
+    .ai-response-box {
+        background-color: #ffffff;
+        border-left: 6px solid #4285F4; /* Google Blue */
+        padding: 20px;
         border-radius: 10px;
-        text-align: center;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        margin-top: 20px;
+    }
+
+    /* Tabs Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: white;
+        border-radius: 5px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. HELPER FUNCTIONS ---
+# --- 3. HELPER FUNCTIONS ---
 
 def calculate_aqi(pm25):
     """Calculates US AQI from PM2.5 concentration"""
@@ -65,157 +79,165 @@ def calculate_aqi(pm25):
     elif pm25 <= 350.4: return ((400 - 301) / (350.4 - 250.5)) * (pm25 - 250.5) + 301
     else: return ((500 - 401) / (500.4 - 350.5)) * (pm25 - 350.5) + 401
 
-def get_aqi_color(aqi):
-    """Returns color hex and CSS class based on AQI"""
-    if aqi <= 50: return "#00e400", "border-green", "Safe"
-    elif aqi <= 100: return "#ffff00", "border-orange", "Moderate"
-    elif aqi <= 150: return "#ff7e00", "border-orange", "Unhealthy for Sensitive"
-    elif aqi <= 200: return "#ff0000", "border-red", "Unhealthy"
-    elif aqi <= 300: return "#8f3f97", "border-red", "Very Unhealthy"
-    else: return "#7e0023", "border-red", "Hazardous"
+def get_aqi_status(aqi):
+    if aqi <= 50: return "Good", "#00e400"
+    elif aqi <= 100: return "Moderate", "#ffff00"
+    elif aqi <= 150: return "Unhealthy for Sensitive", "#ff7e00"
+    elif aqi <= 200: return "Unhealthy", "#ff0000"
+    elif aqi <= 300: return "Very Unhealthy", "#8f3f97"
+    else: return "Hazardous", "#7e0023"
 
-@st.cache_data(ttl=600)
-def get_sensor_data(lat, lon):
+@st.cache_data(ttl=300)
+def get_mining_data(lat, lon):
     try:
+        # Current Data
         url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={OWM_API_KEY}"
         data = requests.get(url).json()
         
-        # Forecast for graph
+        # Forecast Data
         fore_url = f"http://api.openweathermap.org/data/2.5/air_pollution/forecast?lat={lat}&lon={lon}&appid={OWM_API_KEY}"
-        fore_data = requests.get(fore_url).json()
+        fore = requests.get(fore_url).json()
         
         pm25 = data['list'][0]['components']['pm2_5']
         pm10 = data['list'][0]['components']['pm10']
         no2 = data['list'][0]['components']['no2']
         
-        aqi_score = int(calculate_aqi(pm25))
-        
         return {
-            "aqi": aqi_score,
+            "aqi": int(calculate_aqi(pm25)),
             "pm25": pm25,
             "pm10": pm10,
             "no2": no2,
-            "forecast": fore_data['list']
+            "forecast": fore['list']
         }
     except:
         return None
 
-def generate_ai_report(location, aqi, pm25, pm10):
-    """Uses Gemini to generate a safety report"""
-    try:
-        model = genai.GenerativeModel('gemini-pro')
-        prompt = (
-            f"Act as a strict Mine Safety Officer in {location}, Jharkhand. "
-            f"Current stats: AQI is {aqi}, PM2.5 is {pm25}, PM10 is {pm10}. "
-            "Write a short, urgent safety advisory. "
-            "Include: 1. Health Risk. 2. Instructions for Mine Workers. 3. Advice for local schools. "
-            "Keep it under 60 words. Use emojis."
-        )
-        response = model.generate_content(prompt)
-        return response.text
-    except:
-        return "AI System Busy. Please rely on standard operating procedures."
+def get_ai_advice(location, aqi, pm25, pm10):
+    """Calls Gemini API for a safety report"""
+    model = genai.GenerativeModel('gemini-pro')
+    prompt = f"""
+    Act as a Senior Mine Safety Officer in {location}, Jharkhand.
+    Current Sensor Readings:
+    - AQI: {aqi}
+    - PM2.5: {pm25} µg/m³
+    - PM10: {pm10} µg/m³
+    
+    Provide a structured safety report in Markdown format:
+    1. **Immediate Hazard Assessment**: (Safe/Warning/Critical)
+    2. **Required Action for Workers**: (Masks, stop work, etc.)
+    3. **Community Advisory**: (Schools, local villages)
+    
+    Keep it professional, urgent, and concise (under 100 words).
+    """
+    response = model.generate_content(prompt)
+    return response.text
 
-# --- 5. SIDEBAR & LOCATIONS ---
+# --- 4. MAIN LAYOUT ---
+
+# Sidebar
 LOCATIONS = {
     "Dhanbad (Coal Capital)": {"lat": 23.7957, "lon": 86.4304},
     "Jharia (Fire Zone)": {"lat": 23.7430, "lon": 86.4116},
-    "Bokaro (Thermal)": {"lat": 23.6693, "lon": 85.9323},
+    "Bokaro (Thermal/Steel)": {"lat": 23.6693, "lon": 85.9323},
     "Chaibasa (Iron Ore)": {"lat": 22.5526, "lon": 85.8066},
-    "Kodarma (Mica)": {"lat": 24.4677, "lon": 85.5947}
+    "Katras (Mining Belt)": {"lat": 23.8136, "lon": 86.2874},
 }
 
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/4712/4712009.png", width=80)
-    st.title("Safety Grid")
+    st.title("🎛️ Control Panel")
     selected_loc = st.selectbox("Select Zone", list(LOCATIONS.keys()))
     st.divider()
-    st.caption("Powered by Google Gemini & OpenWeather")
+    st.info("System Online • Satellite Connected")
 
-# --- 6. MAIN DASHBOARD ---
-st.title(f"🏭 Safety Dashboard: {selected_loc}")
+# Title
+st.title(f"🏭 {selected_loc} Safety Grid")
 
 # Fetch Data
-data = get_sensor_data(LOCATIONS[selected_loc]['lat'], LOCATIONS[selected_loc]['lon'])
+data = get_mining_data(LOCATIONS[selected_loc]['lat'], LOCATIONS[selected_loc]['lon'])
 
 if data:
-    aqi = data['aqi']
-    hex_color, css_class, status_text = get_aqi_color(aqi)
-    
-    # --- SECTION 1: AI SAFETY OFFICER (The New Feature) ---
-    st.subheader("🤖 AI Safety Officer's Report")
-    
-    # Dynamic styling for the AI box
-    ai_box_html = f"""
-    <div class="ai-box {css_class}">
-        <h3 style="color:{hex_color}; margin-top:0;">⚠ Status: {status_text} (AQI: {aqi})</h3>
-        <p><strong>System Analysis:</strong> Generating live report from Gemini AI...</p>
-    </div>
-    """
-    
-    # We use a placeholder to show the report loading
-    report_container = st.empty()
-    
-    # Generate the AI text (only if not cached)
-    if 'last_loc' not in st.session_state or st.session_state.last_loc != selected_loc:
-        with st.spinner('AI Officer is analyzing sensor data...'):
-            ai_text = generate_ai_report(selected_loc, aqi, data['pm25'], data['pm10'])
-            st.session_state.ai_report = ai_text
-            st.session_state.last_loc = selected_loc
-    
-    # Update the box with the real AI text
-    report_container.markdown(f"""
-    <div class="ai-box {css_class}">
-        <h3 style="color:{hex_color}; margin-top:0;">⚠ Status: {status_text} (AQI: {aqi})</h3>
-        <p style="font-size:18px;">{st.session_state.ai_report}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    aqi_text, aqi_color = get_aqi_status(data['aqi'])
 
-    # --- SECTION 2: LIVE METRICS ---
-    c1, c2, c3 = st.columns(3)
-    c1.metric("PM 2.5 (Fine Dust)", f"{data['pm25']} µg/m³", delta="Dangerous" if data['pm25'] > 60 else "Normal", delta_color="inverse")
-    c2.metric("PM 10 (Coal Dust)", f"{data['pm10']} µg/m³", delta="High" if data['pm10'] > 100 else "Normal", delta_color="inverse")
-    c3.metric("NO2 (Explosive Gas)", f"{data['no2']} µg/m³")
+    # --- TABS: THE "SECOND SCREEN" SOLUTION ---
+    tab1, tab2 = st.tabs(["📊 Live Dashboard", "🤖 AI Safety Officer"])
 
-    # --- SECTION 3: DOWNLOAD REPORT ---
-    st.subheader("📋 Data Logs")
-    
-    # Create a DataFrame for the download
-    forecast_df = pd.DataFrame([
-        {
-            "Time": pd.to_datetime(x['dt'], unit='s'),
-            "PM2.5": x['components']['pm2_5'],
-            "PM10": x['components']['pm10'],
-            "AQI_Predicted": calculate_aqi(x['components']['pm2_5'])
-        } for x in data['forecast']
-    ])
-    
-    col_dl1, col_dl2 = st.columns([3, 1])
-    with col_dl1:
-        st.caption("Download the official 24-hour sensor forecast log for compliance records.")
-    with col_dl2:
-        csv = forecast_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Official Report",
-            data=csv,
-            file_name=f"{selected_loc}_Safety_Log.csv",
-            mime="text/csv"
-        )
-
-    # --- SECTION 4: VISUALS ---
-    tab1, tab2 = st.tabs(["📈 24h Trend Graph", "🧭 AQI Gauge"])
-    
+    # === SCREEN 1: THE DASHBOARD ===
     with tab1:
-        fig = px.area(forecast_df, x='Time', y=['PM10', 'PM2.5'], color_discrete_map={'PM10': hex_color, 'PM2.5': '#cccccc'})
-        st.plotly_chart(fig, use_container_width=True)
-        
+        # Top Metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("PM 2.5 (Fine)", f"{data['pm25']}", delta="Mining Dust")
+        with col2:
+            st.metric("PM 10 (Coarse)", f"{data['pm10']}", delta="Coal Dust")
+        with col3:
+            st.metric("NO2 (Gas)", f"{data['no2']}", delta="Explosives")
+
+        st.divider()
+
+        # Gauge & Graph
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            # Professional Gauge
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=data['aqi'],
+                title={'text': "<b>AQI LEVEL</b>"},
+                gauge={
+                    'axis': {'range': [0, 500]},
+                    'bar': {'color': aqi_color},
+                    'steps': [
+                        {'range': [0, 50], 'color': "#00e400"},
+                        {'range': [50, 100], 'color': "#ffff00"},
+                        {'range': [100, 200], 'color': "#ff0000"},
+                        {'range': [200, 500], 'color': "#7e0023"}],
+                }
+            ))
+            fig.update_layout(height=300, margin=dict(t=40,b=20,l=20,r=20))
+            st.plotly_chart(fig, use_container_width=True)
+
+        with c2:
+            # Trend Graph
+            times = [pd.to_datetime(x['dt'], unit='s') for x in data['forecast'][:24]]
+            vals = [x['components']['pm2_5'] for x in data['forecast'][:24]]
+            df_chart = pd.DataFrame({"Time": times, "PM2.5": vals})
+            
+            fig2 = px.area(df_chart, x="Time", y="PM2.5", title="24-Hour Pollution Trend", color_discrete_sequence=[aqi_color])
+            st.plotly_chart(fig2, use_container_width=True)
+
+    # === SCREEN 2: THE AI OFFICER (GEMINI) ===
     with tab2:
-        fig_gauge = go.Figure(go.Indicator(
-            mode = "gauge+number", value = aqi,
-            title = {'text': "Live Danger Level"},
-            gauge = {'axis': {'range': [0, 500]}, 'bar': {'color': hex_color}}
-        ))
-        st.plotly_chart(fig_gauge, use_container_width=True)
+        st.subheader("🤖 AI Safety Officer Analysis")
+        st.write("Generate a real-time safety report based on current sensor readings.")
+        
+        col_ai_1, col_ai_2 = st.columns([1, 3])
+        
+        with col_ai_1:
+            # Context for the user
+            st.markdown(f"""
+            <div class="metric-card">
+                <b>Current Context</b><br>
+                📍 {selected_loc}<br>
+                🌪️ AQI: {data['aqi']}<br>
+                ⚠️ Status: <span style='color:{aqi_color}'><b>{aqi_text}</b></span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("📝 Generate Report", type="primary", use_container_width=True):
+                with st.spinner("Contacting Safety HQ..."):
+                    # Call the AI Function
+                    report = get_ai_advice(selected_loc, data['aqi'], data['pm25'], data['pm10'])
+                    st.session_state['ai_report'] = report
+        
+        with col_ai_2:
+            # Display Report
+            if 'ai_report' in st.session_state:
+                st.markdown(f"""
+                <div class="ai-response-box">
+                    {st.session_state['ai_report']}
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("👈 Click 'Generate Report' to analyze current hazards.")
 
 else:
-    st.error("Server Disconnected. Please check API Keys.")
+    st.error("Connection Error: Could not fetch sensor data. Check API Key.")
