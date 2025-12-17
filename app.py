@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import time
 
-# --- 1. PAGE CONFIGURATION (Must be first) ---
+# --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Jharkhand Geo-Mining Safety",
     page_icon="🛡️",
@@ -13,15 +13,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CUSTOM CSS FOR ADVANCED UI ---
+# --- 2. CONFIGURATION & API KEY ---
+API_KEY = "9634bddbfe18d6ade9b28b697a066c21"  # Your API Key
+BASE_URL = "http://api.openweathermap.org/data/2.5/air_pollution"
+
+# --- 3. CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* Main Background */
-    .stApp {
-        background-color: #f8f9fa;
-    }
-    
-    /* Card Styling */
+    .stApp { background-color: #f8f9fa; }
     .metric-card {
         background-color: white;
         padding: 20px;
@@ -30,33 +29,13 @@ st.markdown("""
         text-align: center;
         border-bottom: 4px solid #ddd;
     }
-    
-    /* Danger Card */
-    .danger-card {
-        border-bottom: 4px solid #ff4b4b;
-    }
-    
-    /* Safe Card */
-    .safe-card {
-        border-bottom: 4px solid #00cc96;
-    }
-    
-    /* Button Styling */
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        height: 50px;
-        font-weight: bold;
-    }
-    
-    /* Headers */
-    h1, h2, h3 {
-        color: #2c3e50;
-    }
+    .danger-card { border-bottom: 4px solid #ff4b4b; }
+    .safe-card { border-bottom: 4px solid #00cc96; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 50px; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. JHARKHAND MINING ZONES DATA ---
+# --- 4. JHARKHAND MINING ZONES ---
 LOCATIONS = {
     "Dhanbad (Coal Capital)": {"lat": 23.7957, "lon": 86.4304, "type": "Coal Mining"},
     "Jharia (Fire Zone)": {"lat": 23.7430, "lon": 86.4116, "type": "Active Fire/Coal"},
@@ -72,160 +51,136 @@ LOCATIONS = {
     "Palamu (Graphite)": {"lat": 24.0375, "lon": 84.0691, "type": "Graphite Mines"}
 }
 
-# --- 4. SIDEBAR NAVIGATION ---
+# --- 5. SIDEBAR ---
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Emblem_of_Jharkhand.svg/1200px-Emblem_of_Jharkhand.svg.png", width=100)
     st.title("Jharkhand Safety Grid")
-    st.write("Real-time Environmental Monitoring System")
-    
+    st.write("Real-time OpenWeatherMap Link")
     st.divider()
-    
     selected_loc_name = st.selectbox("📍 Select Region", list(LOCATIONS.keys()))
     selected_data = LOCATIONS[selected_loc_name]
-    
     st.info(f"**Zone Type:** {selected_data['type']}")
-    
-    st.divider()
-    st.write("⚙️ **Control Panel**")
-    refresh = st.button("🔄 Refresh Satellite Link")
-    if refresh:
-        st.toast("Reconnecting to Sentinel-5P Satellite...", icon="📡")
-        time.sleep(1)
-        st.toast("Data Updated Successfully!", icon="✅")
+    if st.button("🔄 Refresh Data"):
+        st.cache_data.clear()
 
-# --- 5. DATA FETCHING ENGINE ---
-@st.cache_data(ttl=3600)
-def fetch_pollution_data(lat, lon):
-    url = "https://air-quality-api.open-meteo.com/v1/air-quality"
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": ["pm10", "pm2_5", "us_aqi", "dust"],
-        "timezone": "Asia/Kolkata",
-        "forecast_days": 1
-    }
+# --- 6. DATA FETCHING (OpenWeatherMap) ---
+@st.cache_data(ttl=300)
+def fetch_owm_data(lat, lon):
     try:
-        r = requests.get(url, params=params)
-        data = r.json()
-        df = pd.DataFrame({
-            "Time": pd.to_datetime(data['hourly']['time']),
-            "AQI": data['hourly']['us_aqi'],
-            "PM10": data['hourly']['pm10'],
-            "PM2.5": data['hourly']['pm2_5']
-        })
-        return df
-    except:
-        return pd.DataFrame()
+        # 1. Get Current Data
+        current_url = f"{BASE_URL}?lat={lat}&lon={lon}&appid={API_KEY}"
+        curr_resp = requests.get(current_url).json()
+        
+        # 2. Get Forecast Data (for graphs)
+        forecast_url = f"{BASE_URL}/forecast?lat={lat}&lon={lon}&appid={API_KEY}"
+        fore_resp = requests.get(forecast_url).json()
+        
+        # Process Current
+        current_data = {
+            "aqi": curr_resp['list'][0]['main']['aqi'], # 1 to 5 scale
+            "pm2_5": curr_resp['list'][0]['components']['pm2_5'],
+            "pm10": curr_resp['list'][0]['components']['pm10'],
+            "co": curr_resp['list'][0]['components']['co'],
+            "no2": curr_resp['list'][0]['components']['no2']
+        }
+        
+        # Process Forecast (Next 24 hours)
+        forecast_list = []
+        for item in fore_resp['list'][:24]:
+            forecast_list.append({
+                "Time": pd.to_datetime(item['dt'], unit='s'),
+                "PM2.5": item['components']['pm2_5'],
+                "PM10": item['components']['pm10'],
+                "NO2": item['components']['no2']
+            })
+        
+        return current_data, pd.DataFrame(forecast_list)
+    except Exception as e:
+        st.error(f"API Error: {e}")
+        return None, pd.DataFrame()
 
-# --- 6. MAIN DASHBOARD UI ---
+# --- 7. MAIN DASHBOARD ---
 st.title(f"🛡️ Safety Dashboard: {selected_loc_name}")
-st.markdown(f"**Live Monitoring of {selected_data['type']} Impact on Air Quality**")
+st.markdown(f"**Live Monitoring via OpenWeatherMap API**")
 
-df = fetch_pollution_data(selected_data['lat'], selected_data['lon'])
+current, df_forecast = fetch_owm_data(selected_data['lat'], selected_data['lon'])
 
-if not df.empty:
-    current = df.iloc[pd.Timestamp.now().hour]
-    
-    # --- ROW 1: STATUS CARDS & GAUGE ---
+if current:
+    # --- ROW 1: CARDS ---
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        # Custom HTML Card for PM10
         st.markdown(f"""
         <div class="metric-card danger-card">
             <h3>PM 10 (Dust)</h3>
-            <h1 style="color: #ff4b4b;">{current['PM10']}</h1>
+            <h1 style="color: #ff4b4b;">{current['pm10']}</h1>
             <p>µg/m³</p>
         </div>
         """, unsafe_allow_html=True)
         
     with col2:
-        # Custom HTML Card for PM2.5
         st.markdown(f"""
         <div class="metric-card safe-card">
-            <h3>PM 2.5 (Smoke)</h3>
-            <h1 style="color: #00cc96;">{current['PM2.5']}</h1>
+            <h3>PM 2.5 (Fine)</h3>
+            <h1 style="color: #00cc96;">{current['pm2_5']}</h1>
             <p>µg/m³</p>
         </div>
         """, unsafe_allow_html=True)
 
     with col3:
-        # GUAGE CHART (Speedometer)
+        # GAUGE for OWM AQI (Scale 1-5)
+        aqi_labels = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
+        aqi_val = current['aqi']
+        aqi_text = aqi_labels.get(aqi_val, "Unknown")
+        
         fig = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = current['AQI'],
-            domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': "Live Air Quality Index (AQI)"},
+            mode = "gauge+number+delta",
+            value = aqi_val,
+            title = {'text': f"Air Quality Index (1-5 Scale)<br><span style='font-size:0.8em;color:gray'>{aqi_text}</span>"},
             gauge = {
-                'axis': {'range': [None, 500]},
+                'axis': {'range': [0, 5], 'tickvals': [1,2,3,4,5]},
                 'bar': {'color': "darkblue"},
                 'steps': [
-                    {'range': [0, 50], 'color': "#00cc96"},
-                    {'range': [50, 100], 'color': "#ffc107"},
-                    {'range': [100, 300], 'color': "#ff8c00"},
-                    {'range': [300, 500], 'color': "#ff4b4b"}],
+                    {'range': [0, 1.5], 'color': "#00cc96"}, # Good
+                    {'range': [1.5, 3.5], 'color': "#ffc107"}, # Moderate
+                    {'range': [3.5, 5], 'color': "#ff4b4b"}], # Poor
             }
         ))
         fig.update_layout(height=250, margin=dict(l=20,r=20,t=40,b=20))
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- ROW 2: ACTION CENTER (BUTTONS) ---
+    # --- ROW 2: ACTIONS ---
     st.subheader("⚡ Quick Actions")
-    ac_col1, ac_col2, ac_col3, ac_col4 = st.columns(4)
-    
-    with ac_col1:
-        if st.button("📢 Send Alert SMS"):
-            with st.spinner("Connecting to Gateway..."):
-                time.sleep(2)
-            st.success("Alert sent to District Magistrate & Mine Manager!")
-            
-    with ac_col2:
-        if st.button("📥 Download Report"):
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📄 Click to Save CSV",
-                data=csv,
-                file_name=f"{selected_loc_name}_report.csv",
-                mime="text/csv",
-                key='download-csv'
-            )
-            
-    with ac_col3:
-        if st.button("🏥 Search Hospitals"):
-            st.info("Nearest Respiratory Center: Sadar Hospital (2.4 km)")
-            
-    with ac_col4:
-        if st.button("🚒 Fire Brigade"):
-            st.error("Emergency Signal Sent to Fire Station!")
+    ac1, ac2, ac3, ac4 = st.columns(4)
+    with ac1: 
+        if st.button("📢 Alert"): st.success("Alert Sent!")
+    with ac2:
+        if st.button("📥 Report"):
+            st.download_button("Save CSV", df_forecast.to_csv().encode('utf-8'), "report.csv", "text/csv")
+    with ac3: st.button("🏥 Hospitals")
+    with ac4: st.button("🚒 Emergency")
 
-    # --- ROW 3: DETAILED GRAPHS ---
+    # --- ROW 3: GRAPHS & MAP ---
     st.divider()
-    tab_chart, tab_map, tab_adv = st.tabs(["📊 Analytics", "🗺️ Geo-Map", "🩺 Medical Advisory"])
+    tab1, tab2, tab3 = st.tabs(["📊 Forecast Trend", "🗺️ Map Location", "🩺 Health Advice"])
     
-    with tab_chart:
-        st.subheader("24-Hour Pollution Forecast")
-        chart_fig = px.area(df, x='Time', y=['PM10', 'PM2.5'], color_discrete_map={'PM10':'#ff4b4b', 'PM2.5':'#00cc96'})
-        st.plotly_chart(chart_fig, use_container_width=True)
+    with tab1:
+        if not df_forecast.empty:
+            fig = px.area(df_forecast, x='Time', y=['PM10', 'PM2.5', 'NO2'], 
+                          title="24-Hour Pollutant Forecast",
+                          color_discrete_map={'PM10':'#ff4b4b', 'PM2.5':'#00cc96', 'NO2':'#ffa500'})
+            st.plotly_chart(fig, use_container_width=True)
+            
+    with tab2:
+        st.map(pd.DataFrame({'lat': [selected_data['lat']], 'lon': [selected_data['lon']]}), zoom=12)
         
-    with tab_map:
-        st.subheader("Satellite Location Tracking")
-        map_df = pd.DataFrame({'lat': [selected_data['lat']], 'lon': [selected_data['lon']]})
-        st.map(map_df, zoom=10)
-        
-    with tab_adv:
-        st.subheader("AI-Generated Health Protocols")
-        if current['AQI'] > 200:
-            st.error("🔴 **CRITICAL:** Suspend all open-cast mining immediately. Sprinklers must be active.")
-            st.markdown("* Workers must wear N95 masks.")
-            st.markdown("* Schools within 5km radius should be closed.")
-        elif current['AQI'] > 100:
-            st.warning("🟠 **WARNING:** Limit heavy vehicle movement. Increase water sprinkling frequency.")
+    with tab3:
+        if current['aqi'] >= 4:
+            st.error("🔴 **HIGH RISK:** Air quality is Poor/Very Poor. Wear masks and stop outdoor work.")
+        elif current['aqi'] == 3:
+            st.warning("🟠 **MODERATE:** Sensitive groups should avoid exertion.")
         else:
-            st.success("🟢 **NORMAL:** Standard mining operations permitted.")
+            st.success("🟢 **SAFE:** Air quality is Good or Fair.")
 
 else:
-    st.error("Connection Failed. Please check internet access.")
-
-# --- FOOTER ---
-st.markdown("---")
-st.markdown(f"<div style='text-align: center; color: grey;'>Developed for Jharkhand Mining Safety Initiative • {selected_loc_name} Zone</div>", unsafe_allow_html=True)
+    st.error("Could not connect to OpenWeatherMap. Please check API Key or Internet.")
